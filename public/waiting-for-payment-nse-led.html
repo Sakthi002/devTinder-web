@@ -1,0 +1,439 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>NSE LED Ticker</title>
+        <!--
+  Lightweight LED ticker for Huidu HDPlayer / LED controllers.
+  Plain ES5 JavaScript, no frameworks, no modern syntax.
+
+  URL options (all optional), for example:
+    /nse-led.html?view=up&sort=gain&size=auto&speed=normal&theme=dark
+
+  view    = all | up | down                 (default all)
+  sort    = az | gain | loss                (default az)
+  size    = auto | number in px             (default auto = fits screen height)
+  speed   = slow | normal | fast | px/sec   (default normal)
+  theme   = dark | light                    (default dark)
+  symbols = TCS,INFY,SBIN                   (show only these)
+  api     = full API URL                    (default /api/nse/ticker)
+  debug   = 1                               (always show status line)
+-->
+        <style>
+            html,
+            body {
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+            }
+            body {
+                background: #000000;
+                font-family:
+                    "Arial Black", "Arial Bold", Impact, Arial, sans-serif;
+                font-weight: 900;
+            }
+            #stage {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+            }
+            #track {
+                position: absolute;
+                left: 0;
+                top: 50%;
+                white-space: nowrap;
+                line-height: 1.15;
+            }
+            .copy {
+                display: inline-block;
+                white-space: nowrap;
+            }
+            .it {
+                display: inline-block;
+                padding: 0 0.45em;
+            }
+            .sym {
+                color: #ffd23f;
+            }
+            .price {
+                color: #ffffff;
+            }
+            .up {
+                color: #39e75f;
+            }
+            .down {
+                color: #ff3b4e;
+            }
+            .sep {
+                color: #c9d3ea;
+                font-size: 0.45em;
+                vertical-align: middle;
+                padding-left: 0.7em;
+            }
+            #msg {
+                position: absolute;
+                left: 0;
+                bottom: 0;
+                padding: 4px 8px;
+                font:
+                    bold 14px Arial,
+                    sans-serif;
+                color: #ff6b6b;
+                background: rgba(0, 0, 0, 0.6);
+                display: none;
+            }
+
+            body.light {
+                background: #ffffff;
+            }
+            body.light .sym {
+                color: #a86a00;
+            }
+            body.light .price {
+                color: #14182b;
+            }
+            body.light .up {
+                color: #0a8a3a;
+            }
+            body.light .down {
+                color: #d01f30;
+            }
+            body.light .sep {
+                color: #9aa3b8;
+            }
+            body.light #msg {
+                background: rgba(255, 255, 255, 0.8);
+            }
+        </style>
+    </head>
+    <body>
+        <div id="stage"><div id="track"></div></div>
+        <div id="msg"></div>
+
+        <script>
+            (function () {
+                var REFRESH_MS = 15000;
+
+                // ---------- Status / error line (helps diagnose blank screens) ----------
+                var msgEl = document.getElementById("msg");
+                var DEBUG = false;
+                function showMsg(text, isError) {
+                    if (!text) {
+                        msgEl.style.display = DEBUG ? "block" : "none";
+                        return;
+                    }
+                    msgEl.style.display = "block";
+                    msgEl.style.color = isError ? "#ff6b6b" : "#9aa3b8";
+                    msgEl.innerHTML = text;
+                }
+                window.onerror = function (message, source, line) {
+                    showMsg(
+                        "Script error: " + message + " (line " + line + ")",
+                        true,
+                    );
+                };
+
+                // ---------- URL options ----------
+                function getParams() {
+                    var out = {},
+                        q = window.location.search
+                            .replace(/^\?/, "")
+                            .split("&");
+                    for (var i = 0; i < q.length; i++) {
+                        if (!q[i]) continue;
+                        var kv = q[i].split("=");
+                        out[decodeURIComponent(kv[0])] = decodeURIComponent(
+                            (kv[1] || "").replace(/\+/g, " "),
+                        );
+                    }
+                    return out;
+                }
+                var P = getParams();
+                var VIEW = P.view || "all";
+                var SORT = P.sort || "az";
+                var SIZE = P.size || "auto";
+                var SPEED = P.speed || "normal";
+                var API = P.api || "/api/nse/ticker";
+                var SYMBOLS = P.symbols
+                    ? P.symbols.toUpperCase().split(",")
+                    : null;
+                DEBUG = P.debug === "1";
+                if (P.theme === "light") document.body.className = "light";
+
+                // ---------- Number format, Indian style (e.g. 12,939.00) ----------
+                function fmt(n) {
+                    var s = Math.abs(Number(n)).toFixed(2);
+                    var parts = s.split(".");
+                    var x = parts[0];
+                    if (x.length > 3) {
+                        var last3 = x.substring(x.length - 3);
+                        var rest = x.substring(0, x.length - 3);
+                        rest = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",");
+                        x = rest + "," + last3;
+                    }
+                    return x + "." + parts[1];
+                }
+
+                function esc(s) {
+                    return String(s)
+                        .replace(/&/g, "&amp;")
+                        .replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;");
+                }
+
+                // ---------- Filter + sort ----------
+                function prepare(list) {
+                    var out = [];
+                    for (var i = 0; i < list.length; i++) {
+                        var s = list[i];
+                        if (!s || !s.symbol) continue;
+                        var up = Number(s.change) >= 0;
+                        if (VIEW === "up" && !up) continue;
+                        if (VIEW === "down" && up) continue;
+                        if (
+                            SYMBOLS &&
+                            indexOf(SYMBOLS, String(s.symbol).toUpperCase()) ===
+                                -1
+                        )
+                            continue;
+                        out.push(s);
+                    }
+                    out.sort(function (a, b) {
+                        if (SORT === "gain") return b.pChange - a.pChange;
+                        if (SORT === "loss") return a.pChange - b.pChange;
+                        return a.symbol < b.symbol
+                            ? -1
+                            : a.symbol > b.symbol
+                              ? 1
+                              : 0;
+                    });
+                    return out;
+                }
+                function indexOf(arr, v) {
+                    for (var i = 0; i < arr.length; i++)
+                        if (arr[i] === v) return i;
+                    return -1;
+                }
+
+                function itemsHtml(list) {
+                    var html = "";
+                    for (var i = 0; i < list.length; i++) {
+                        var s = list[i];
+                        var up = Number(s.change) >= 0;
+                        var sign = up ? "+" : "-";
+                        html +=
+                            '<span class="it">' +
+                            '<span class="sym">' +
+                            esc(s.symbol) +
+                            "</span> " +
+                            '<span class="price">&#8377;' +
+                            fmt(s.price) +
+                            "</span> " +
+                            '<span class="' +
+                            (up ? "up" : "down") +
+                            '">' +
+                            sign +
+                            fmt(s.change) +
+                            " (" +
+                            sign +
+                            fmt(s.pChange) +
+                            "%)</span>" +
+                            '<span class="sep">&#9670;</span>' +
+                            "</span>";
+                    }
+                    return html;
+                }
+
+                // ---------- Layout ----------
+                var track = document.getElementById("track");
+                var fontPx = 40;
+                var copyW = 0;
+                var offset = 0;
+                var lastList = [];
+
+                function screenW() {
+                    return (
+                        window.innerWidth ||
+                        document.documentElement.clientWidth ||
+                        800
+                    );
+                }
+                function screenH() {
+                    return (
+                        window.innerHeight ||
+                        document.documentElement.clientHeight ||
+                        200
+                    );
+                }
+
+                function applySize() {
+                    // Fit the height on short LED strips, but cap by width on large/tall screens
+                    if (SIZE === "auto")
+                        fontPx = Math.max(
+                            10,
+                            Math.round(
+                                Math.min(screenH() * 0.62, screenW() * 0.07),
+                            ),
+                        );
+                    else fontPx = Math.max(8, parseInt(SIZE, 10) || 40);
+                    track.style.fontSize = fontPx + "px";
+                }
+
+                function speedPx() {
+                    var n = parseFloat(SPEED);
+                    if (!isNaN(n)) return n;
+                    var factor =
+                        SPEED === "slow" ? 1 : SPEED === "fast" ? 2.6 : 1.6; // font-heights per second
+                    return fontPx * factor;
+                }
+
+                function render(list) {
+                    lastList = list;
+                    applySize();
+
+                    if (!list.length) {
+                        track.innerHTML =
+                            '<span class="it"><span class="price">No stocks match the filter</span></span>';
+                        copyW = 0;
+                        centerVertically();
+                        return;
+                    }
+
+                    // One copy must be at least as wide as the screen for a seamless loop
+                    var one = itemsHtml(list);
+                    track.innerHTML = '<span class="copy">' + one + "</span>";
+                    var w = track.firstChild.offsetWidth || 1;
+                    var reps = Math.max(1, Math.ceil(screenW() / w));
+                    var copy = "";
+                    for (var i = 0; i < reps; i++) copy += one;
+
+                    track.innerHTML =
+                        '<span class="copy">' +
+                        copy +
+                        '</span><span class="copy">' +
+                        copy +
+                        "</span>";
+                    var newW = track.firstChild.offsetWidth || 1;
+
+                    // Keep the current scroll position when data refreshes
+                    if (copyW > 0) offset = -(-offset % newW);
+                    copyW = newW;
+                    centerVertically();
+                }
+
+                function centerVertically() {
+                    track.style.marginTop =
+                        -Math.round(track.offsetHeight / 2) + "px";
+                }
+
+                // ---------- Animation (JS driven, works on old engines) ----------
+                var st = track.style;
+                var useTransform =
+                    st.transform !== undefined
+                        ? "transform"
+                        : st.webkitTransform !== undefined
+                          ? "webkitTransform"
+                          : null;
+
+                function place() {
+                    if (useTransform)
+                        st[useTransform] =
+                            "translateX(" + offset.toFixed(1) + "px)";
+                    else st.left = Math.round(offset) + "px";
+                }
+
+                var raf =
+                    window.requestAnimationFrame ||
+                    window.webkitRequestAnimationFrame ||
+                    function (cb) {
+                        return window.setTimeout(function () {
+                            cb(new Date().getTime());
+                        }, 16);
+                    };
+
+                var last = new Date().getTime();
+                function tick() {
+                    var now = new Date().getTime();
+                    var dt = Math.min((now - last) / 1000, 0.1);
+                    last = now;
+                    if (copyW > 0) {
+                        offset -= speedPx() * dt;
+                        if (-offset >= copyW) offset += copyW;
+                        place();
+                    }
+                    raf(tick);
+                }
+
+                // ---------- Data ----------
+                function load() {
+                    var xhr;
+                    try {
+                        xhr = new XMLHttpRequest();
+                    } catch (e) {
+                        showMsg("XMLHttpRequest not supported", true);
+                        return;
+                    }
+                    var url =
+                        API +
+                        (API.indexOf("?") === -1 ? "?" : "&") +
+                        "t=" +
+                        new Date().getTime();
+                    xhr.open("GET", url, true);
+                    try {
+                        xhr.timeout = 12000;
+                    } catch (e) {
+                        /* not supported, ignore */
+                    }
+                    xhr.onreadystatechange = function () {
+                        if (xhr.readyState !== 4) return;
+                        if (xhr.status !== 200) {
+                            showMsg(
+                                "Could not load prices (HTTP " +
+                                    xhr.status +
+                                    "). Retrying…",
+                                true,
+                            );
+                            return;
+                        }
+                        try {
+                            var data = JSON.parse(xhr.responseText);
+                            if (!data || typeof data.length !== "number")
+                                throw new Error("Unexpected response");
+                            render(prepare(data));
+                            showMsg(
+                                DEBUG
+                                    ? "Updated " +
+                                          new Date().toLocaleTimeString() +
+                                          " · " +
+                                          data.length +
+                                          " stocks"
+                                    : "",
+                                false,
+                            );
+                        } catch (e) {
+                            showMsg("Bad data: " + e.message, true);
+                        }
+                    };
+                    xhr.send();
+                }
+
+                window.onresize = function () {
+                    if (lastList.length) render(lastList);
+                    else applySize();
+                };
+
+                applySize();
+                showMsg("Loading prices…", false);
+                load();
+                window.setInterval(load, REFRESH_MS);
+                tick();
+            })();
+        </script>
+    </body>
+</html>
