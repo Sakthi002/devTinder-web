@@ -1,5 +1,7 @@
 import axios from "axios";
 import { API_BASE_URL } from "../utils/constant";
+import { useEffect } from "react";
+import { useState } from "react";
 
 const plans = [
     {
@@ -123,6 +125,21 @@ function PlanCard({ plan, onSubscribe }) {
 }
 
 function Membership() {
+    const [isPremium, setIspremium] = useState(false);
+    useEffect(() => {
+        verifyPremium();
+    }, []);
+
+    const verifyPremium = async () => {
+        try {
+            const res = await axios.get(API_BASE_URL + "/premium/verify", {
+                withCredentials: true,
+            });
+            setIspremium(res.data.isPremium);
+        } catch (error) {
+            console.error(error.message);
+        }
+    };
     const handleSubscribe = async (planId) => {
         try {
             const order = await axios.post(
@@ -150,6 +167,7 @@ function Membership() {
                 theme: {
                     color: "#F37254",
                 },
+                handler: verifyPremium,
             };
 
             const rzp = new window.Razorpay(options);
@@ -159,7 +177,35 @@ function Membership() {
         }
     };
 
-    return (
+    return isPremium ? (
+        <div className="min-h-full flex items-center justify-center px-4 py-10">
+            <div className="card w-full max-w-md bg-base-100 shadow-md border-2 border-warning">
+                <div className="card-body items-center text-center">
+                    <div className="flex items-center justify-center size-16 rounded-full bg-warning/20 text-warning text-3xl">
+                        ⭐
+                    </div>
+
+                    <span className="badge badge-warning mt-3">
+                        Active membership
+                    </span>
+
+                    <h1 className="text-2xl font-bold mt-2">
+                        You're a Premium member 🎉
+                    </h1>
+                    <p className="text-sm opacity-70">
+                        Thanks for supporting DevTinder. Enjoy all your premium
+                        features.
+                    </p>
+
+                    <div className="card-actions w-full mt-6">
+                        <a href="/" className="btn btn-neutral btn-block">
+                            Start connecting
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    ) : (
         <div className="min-h-full px-4 py-10">
             <div className="text-center mb-10">
                 <h1 className="text-3xl font-bold">Choose your plan</h1>
