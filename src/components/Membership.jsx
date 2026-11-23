@@ -133,18 +133,19 @@ function Membership() {
                 { withCredentials: true },
             );
 
-            const { amount, currency, notes } = order.data.data;
+            const { amount, currency, notes, orderId } = order.data.data;
+            console.log(order.data.data, "orderrr");
+
             const options = {
                 key: order.data.keyId,
                 amount,
                 currency,
                 name: "Dev Tinder",
-                description: "Connection developers....",
-                order_id: order.data.data.id,
+                description: "Connecting developers....",
+                order_id: order.data.data.orderId,
                 prefill: {
                     name: notes.firstName + " " + notes.lastName,
                     email: notes.emailId,
-                    contact: "9999999999",
                 },
                 theme: {
                     color: "#F37254",
