@@ -7,6 +7,7 @@ import appStore from "./utils/appStore";
 import Profile from "./components/Profile";
 import Connections from "./components/Connections";
 import Requests from "./components/Requests";
+import Membership from "./components/Membership";
 
 function App() {
     return (
@@ -32,7 +33,10 @@ function App() {
                                 path="/requests"
                                 element={<Requests></Requests>}
                             ></Route>
-                        
+                            <Route
+                                path="/membership"
+                                element={<Membership></Membership>}
+                            ></Route>
                         </Route>
                     </Routes>
                 </BrowserRouter>
