@@ -8,6 +8,7 @@ import Profile from "./components/Profile";
 import Connections from "./components/Connections";
 import Requests from "./components/Requests";
 import Membership from "./components/Membership";
+import Chat from "./components/Chat";
 
 function App() {
     return (
@@ -36,6 +37,11 @@ function App() {
                             <Route
                                 path="/membership"
                                 element={<Membership></Membership>}
+                            ></Route>
+
+                            <Route
+                                path="/chat/:targetUserId"
+                                element={<Chat></Chat>}
                             ></Route>
                         </Route>
                     </Routes>

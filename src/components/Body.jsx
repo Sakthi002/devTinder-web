@@ -13,8 +13,6 @@ const Body = () => {
 
     const fetchUser = async () => {
         try {
-            console.log("in body");
-
             const result = await axios.get(API_BASE_URL + "/profile/view", {
                 withCredentials: true,
             });
@@ -29,8 +27,6 @@ const Body = () => {
     };
 
     useEffect(() => {
-        console.log("lolo");
-
         fetchUser();
     }, []);
 
